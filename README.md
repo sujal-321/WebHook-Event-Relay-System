@@ -5,6 +5,7 @@
 🔁 Asynchronous Event Delivery using Redis queues and background workers
 
 🔐 Secure Webhook Signing with HMAC SHA-256 signatures
+<img width="1876" height="895" alt="Screenshot (2)" src="https://github.com/user-attachments/assets/a86a5c69-3fdc-4600-a50d-0090d8273b1c" />
 
 ♻️ Idempotent Event Processing to prevent duplicate deliveries
 
