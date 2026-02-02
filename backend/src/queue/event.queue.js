@@ -1,6 +1,6 @@
-const { Queue } = require("bullmq");
-const redisConfig = require("../config/redis.config");
+import { Queue } from "bullmq";
+import redisConfig from "../config/redis.config.js";
 
 const eventQueue = new Queue("event-delivery", redisConfig);
 
-module.exports = eventQueue;
+export default eventQueue;

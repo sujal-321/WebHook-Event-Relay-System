@@ -1,9 +1,11 @@
-const express = require('express');
-const cors = require ('cors');
-const eventRoutes = require("./routes/events.routes");
-const webhookRoutes = require("./routes/webhooks.routes");
+import express from "express";
+import cors from "cors";
 
+import eventRoutes from "./routes/events.routes.js";
+import webhookRoutes from "./routes/webhooks.routes.js";
 
+import { db } from "./db/index.js";
+import { deliveryLogs } from "./db/schema/deliveryLogs.js";
 
 const app = express();
 
@@ -12,38 +14,19 @@ app.use(express.json());
 
 app.use("/events", eventRoutes);
 app.use("/webhooks", webhookRoutes);
-const pool = require("./db/postgres");
 
 app.get("/logs", async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT 
-         id,
-         event_id,
-         webhook_id,
-         status,
-         retry_count,
-         response_code,
-         last_attempt
-       FROM delivery_logs
-       ORDER BY last_attempt DESC
-       LIMIT 50`
-    );
+  const logs = await db
+    .select()
+    .from(deliveryLogs)
+    .limit(50);
 
-    res.json(result.rows);
-  } catch (err) {
-    console.error("Logs fetch error:", err);
-    res.status(500).json({ error: "Failed to fetch logs" });
-  }
+  res.json(logs);
 });
+
 app.post("/test-webhook", (req, res) => {
   console.log("✅ Webhook received locally!");
-  console.log("Headers:", req.headers);
-  console.log("Body:", req.body);
-
-  res.status(200).json({ received: true });
+  res.json({ received: true });
 });
 
-
-
-module.exports = app;
+export default app;

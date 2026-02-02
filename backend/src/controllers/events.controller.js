@@ -1,63 +1,55 @@
-const { v4: uuidv4 } = require("uuid");
-const pool = require("../db/postgres");
-const eventQueue = require("../queue/event.queue");
-const { getSubscriptionsByEvent } = require("../services/subscription.service");
+import { db } from "../db/index.js";
+import { events } from "../db/schema/events.js";
+import { webhook_subscriptions } from "../db/schema/webhooks.js";
+import { eq } from "drizzle-orm";
+import eventQueue from "../queue/event.queue.js";
+import redisClient from "../cache/redis.js";
 
-exports.createEvent = async (req, res) => {
+export const createEvent = async (req, res) => {
   try {
     const { event_type, payload, idempotency_key } = req.body;
 
-    // 1️⃣ Basic validation
     if (!event_type || !idempotency_key) {
-      return res.status(400).json({ error: "Missing fields" });
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // 2️⃣ Idempotency check
-    const existing = await pool.query(
-      "SELECT id FROM events WHERE idempotency_key = $1",
-      [idempotency_key]
-    );
+    // 🔁 Idempotency check
+    const existing = await db
+      .select()
+      .from(events)
+      .where(eq(events.idempotencyKey, idempotency_key));
 
-    if (existing.rows.length > 0) {
-      return res.status(200).json({
-        message: "Duplicate event ignored",
-        event_id: existing.rows[0].id
-      });
+    if (existing.length) {
+      return res.json({ message: "Duplicate event ignored" });
     }
 
-    // 3️⃣ Create event ID
-    const eventId = uuidv4();
+    // 💾 Insert event
+    const [event] = await db
+      .insert(events)
+      .values({
+        eventType: event_type,
+        payload,
+        idempotencyKey: idempotency_key,
+      })
+      .returning();
 
-    // 4️⃣ Save event to DB
-    await pool.query(
-      `INSERT INTO events (id, event_type, payload, idempotency_key)
-       VALUES ($1, $2, $3, $4)`,
-      [eventId, event_type, payload || {}, idempotency_key]
-    );
+    // 📦 Fetch subscribers
+    const subscriptions = await db
+      .select()
+      .from(webhook_subscriptions)
+      .where(eq(webhook_subscriptions.eventType, event_type));
 
-    // 5️⃣ Fetch active webhook subscriptions
-    const subscriptions = await getSubscriptionsByEvent(event_type);
-    console.log("Creating event:", event_type);
-
-
-    // 6️⃣ Push delivery jobs to Redis queue
+    // 🚀 Queue delivery jobs
     for (const webhook of subscriptions) {
-        console.log("Queueing job for webhook:", webhook.id);
       await eventQueue.add("deliver", {
-        eventId,
-        webhook
+        eventId: event.id,
+        webhook,
       });
     }
-    console.log("Subscriptions found:", subscriptions.length);
 
-
-    // 7️⃣ Respond
-    res.status(201).json({
-      event_id: eventId,
-      deliveries_queued: subscriptions.length
-    });
+    res.status(201).json({ event_id: event.id });
   } catch (err) {
-    console.error("Create Event Error:", err);
-    res.status(500).json({ error: "Server error" });
+    console.error("Create event error:", err);
+    res.status(500).json({ error: "Failed to create event" });
   }
 };
